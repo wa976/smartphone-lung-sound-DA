@@ -1,0 +1,40 @@
+
+
+# jmir
+
+# AST - stethoscope
+python main.py --seed 1 --dataset icbhi --class_split lungsound --epochs 30 --batch_size 16 --optimizer adam --learning_rate 5e-5 --weight_decay 1e-6 --desired_length 4 --audioset_pretrained --pad_types repeat --resz 1 --n_mels 128 --ma_update --ma_beta 0.5 --from_sl_official --method ce --mix_beta 1.0 --n_cls 2 --data_folder './data/jmir_stethoscope/fold1/' --tag jmir_stethoscope_fold1 --device_mode mixed
+
+
+# AST - iphone
+python main.py --seed 1 --dataset icbhi --class_split lungsound --epochs 30 --batch_size 16 --optimizer adam --learning_rate 5e-5 --weight_decay 1e-6 --desired_length 4 --audioset_pretrained --pad_types repeat --resz 1 --n_mels 128 --ma_update --ma_beta 0.5 --from_sl_official --method ce --mix_beta 1.0 --n_cls 2 --data_folder './data/jmir_iphone/fold0/' --tag jmir_iphone_nors_fold0 --device_mode mixed
+
+
+
+# AST - combined
+python main.py --seed 1 --dataset icbhi --class_split lungsound --epochs 30 --batch_size 16 --optimizer adam --learning_rate 5e-5 --weight_decay 1e-6 --desired_length 4 --audioset_pretrained --pad_types repeat --resz 1 --n_mels 128 --ma_update --ma_beta 0.5 --from_sl_official --method ce --mix_beta 1.0 --n_cls 2 --data_folder './data/jmir_combine/fold3/' --tag jmir_combined_fold3 --device_mode mixed
+
+
+# AST - Frequency time Mixstyle + balanced sampler
+python main.py --seed 1 --dataset icbhi --class_split lungsound --epochs 100 --batch_size 16 --optimizer adam --learning_rate 5e-5 --weight_decay 1e-6 --desired_length 4 --audioset_pretrained --pad_types repeat --resz 1 --n_mels 128 --ma_update --ma_beta 0.5 --from_sl_official --method ce --mix_beta 1.0 --n_cls 2 --data_folder './data/jmir_combine/fold0/' --tag jmir_cdfms_fold0 --device_mode mixed --frequency_stylemix --balance_sampler --model ast_ftms
+
+
+# roc
+python main.py --seed 1 --dataset icbhi --class_split lungsound --n_cls 2 --batch_size 16 --optimizer adam --learning_rate 5e-5 --weight_decay 1e-6 --desired_length 4 --pretrained --pad_types repeat --resz 1 --n_mels 128 --ma_update --ma_beta 0.5 --from_sl_official --method ce --mix_beta 1.0 --eval --pretrained_ckpt './save/icbhi_ast_ce_jmir_iphone_fold0/best.pth' --tag roc --data_folder './data/jmir_iphone/fold0/' --fold_number 0 --roc
+
+#  eval
+python main.py --seed 1 --dataset icbhi --class_split lungsound --epochs 30 --batch_size 16 --optimizer adam --learning_rate 5e-5 --weight_decay 1e-6 --desired_length 4 --pad_types repeat --resz 1 --n_mels 128 --ma_update --ma_beta 0.5 --method ce --mix_beta 1.0 --n_cls 2 --data_folder './data/jmir_combine/fold0/' --tag test --device_mode mixed --eval --pretrained --pretrained_ckpt './save/icbhi_ast_ce_jmir_iphone_fold0/best.pth'
+
+# tsne
+python main.py --seed 1 --dataset icbhi --class_split lungsound --epochs 30 --batch_size 16 --optimizer adam --learning_rate 5e-5 --weight_decay 1e-6 --desired_length 4 --audioset_pretrained --pad_types repeat --resz 1 --n_mels 128 --ma_update --ma_beta 0.5 --from_sl_official --method ce --mix_beta 1.0 --n_cls 2 --data_folder './data/jmir_generated/fold0/' --tag jmir_tsne --device_mode mixed --visualize_initial_embeddings
+
+
+# tsne + eval
+python main.py --seed 1 --dataset icbhi --class_split lungsound --epochs 30 --batch_size 16 --optimizer adam --learning_rate 5e-5 --weight_decay 1e-6 --desired_length 4 --pad_types repeat --resz 1 --n_mels 128 --ma_update --ma_beta 0.5 --method ce --mix_beta 1.0 --n_cls 2 --data_folder './data/jmir_generated/fold0/' --tag test --device_mode mixed --visualize_embeddings --eval --pretrained --pretrained_ckpt './save/icbhi_ast_ce_jmir_ast_generate_fold0/best.pth'
+
+
+
+
+
+
+

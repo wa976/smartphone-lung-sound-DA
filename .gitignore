@@ -1,0 +1,11 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+*.pth
+*.wav
+deep_learning/save/
+deep_learning/data/
+original_data/
+feature_analysis/
