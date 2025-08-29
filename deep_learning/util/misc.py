@@ -10,6 +10,7 @@ import torch.optim as optim
 
 """ train util """
 def adjust_learning_rate(args, optimizer, epoch):
+    
     lr = args.learning_rate
     if args.cosine:
         eta_min = lr * (args.lr_decay_rate ** 3)
@@ -140,22 +141,33 @@ def accuracy(output, target, topk=(1,)):
 
         return res, bsz
 
-def save_model(model, optimizer, args, epoch, save_file, classifier):
+def save_model(model, optimizer, args, epoch, save_file, classifier, prompt=None):
     print('==> Saving...')
     state = {
         'args': args,
         'model': model.state_dict(),
         'optimizer': optimizer.state_dict(),
         'epoch': epoch,
-        'classifier': classifier.state_dict()
-    }
-
+            'classifier': classifier.state_dict()
+        }
     torch.save(state, save_file)
     del state
-    
+
+
+def save_model_dual(model, optimizer, args, epoch, save_file, class_classifier,device_classifier,final_classifier):
+    print('==> Saving...')
+    state = {
+        'args': args,
+        'model': model.state_dict(),
+        'optimizer': optimizer.state_dict(),
+        'epoch': epoch,
+        'classifier': class_classifier.state_dict(),
+        'device_classifier': device_classifier.state_dict(),
+        'final_classifier': final_classifier.state_dict()
+    }
     
 def update_json(exp_name, acc, path='./save/results.json'):
-    acc = [round(a, 2) for a in acc]
+    acc = [round(a, 3) for a in acc]
     if not os.path.exists(path):
         with open(path, 'w') as f:
             json.dump({}, f)

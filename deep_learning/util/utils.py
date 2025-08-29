@@ -235,15 +235,11 @@ def generate_fbank(args, audio, sample_rate, n_mels=128,frame_shift=10):
     """
     use torchaudio library to convert mel fbank for AST model
     """    
-    assert sample_rate == 16000, 'input audio sampling rate must be 16kHz'
+    # assert sample_rate == 16000, 'input audio sampling rate must be 16kHz'
     
     fbank = torchaudio.compliance.kaldi.fbank(audio, htk_compat=True, sample_frequency=sample_rate, use_energy=False, window_type='hanning', num_mel_bins=n_mels, dither=0.0, frame_shift=frame_shift)
     
-    if args.model in ['ast']:
-        mean, std =  -4.2677393, 4.5689974
-    else:
-        mean, std = fbank.mean(), fbank.std()
-    fbank = (fbank - mean) / (std * 2) # mean / std
+
     fbank = fbank.unsqueeze(-1).numpy()
     return fbank 
 
@@ -275,26 +271,30 @@ def generate_spectrogram(self, fbank_data):
 
 
 def get_score(hits, counts, pflag=False):
-    # normal accuracy
+    # normal accuracy (specificity)
     sp = hits[0] / (counts[0] + 1e-10) * 100
-    # abnormal accuracy
+    # abnormal accuracy (sensitivity)
     se = sum(hits[1:]) / (sum(counts[1:]) + 1e-10) * 100
     sc = (sp + se) / 2.0
 
-    # Calculate precision and recall for normal class
-    tp_normal = sum(hits[1:])
-    fp_normal = sum(counts[1:]) - sum(hits[1:])
-    fn_normal = counts[0] - hits[0]
+    TP = sum(hits[1:])
+    TN = hits[0]
+    FP = counts[0] - hits[0]  # normal(0)인걸 잘못 1로 예측
+    FN = sum(counts[1:]) - sum(hits[1:])  # abnormal(1)인걸 잘못 0으로 예측
 
-    precision_normal = tp_normal / (tp_normal + fp_normal + 1e-10)
-    recall_normal = tp_normal / (tp_normal + fn_normal + 1e-10)
+    precision_abnormal = TP / (TP + FP + 1e-10)
+    recall_abnormal    = TP / (TP + FN + 1e-10)
+    f1_abnormal        = 2 * (precision_abnormal * recall_abnormal) / (precision_abnormal + recall_abnormal + 1e-10)
 
-    # Calculate F1 score for normal class
-    f1_normal = 2 * (precision_normal * recall_normal) / (precision_normal + recall_normal + 1e-10)
+    # Overall accuracy
+    accuracy = (TP + TN) / (sum(counts) + 1e-10) * 100
+
+
 
     if pflag:
-        # print("************* Metrics ******************")
         print("S_p: {}, S_e: {}, Score: {}".format(sp, se, sc))
-        print("Precision (Normal): {}, Recall (Normal): {}, F1 Score (Normal): {}".format(precision_normal, recall_normal, f1_normal))
+        print("Accuracy: {}".format(accuracy))
+        print("Precision (Normal): {}, Recall (Normal): {}, F1 Score (Normal): {}".format(
+            precision_abnormal, recall_abnormal, f1_abnormal))
 
-    return sp, se, sc,f1_normal
+    return sp, se, sc, f1_abnormal, accuracy

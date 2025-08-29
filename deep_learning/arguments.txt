@@ -3,38 +3,47 @@
 # jmir
 
 # AST - stethoscope
-python main.py --seed 1 --dataset icbhi --class_split lungsound --epochs 30 --batch_size 16 --optimizer adam --learning_rate 5e-5 --weight_decay 1e-6 --desired_length 4 --audioset_pretrained --pad_types repeat --resz 1 --n_mels 128 --ma_update --ma_beta 0.5 --from_sl_official --method ce --mix_beta 1.0 --n_cls 2 --data_folder './data/jmir_stethoscope/fold1/' --tag jmir_stethoscope_fold1 --device_mode mixed
+python main.py --seed 1 --dataset icbhi --class_split lungsound --epochs 30 --batch_size 16 --optimizer adam --learning_rate 5e-5 --weight_decay 1e-6 --desired_length 4 --audioset_pretrained --pad_types repeat --resz 1 --n_mels 128 --ma_update --ma_beta 0.5 --from_sl_official --method ce  --n_cls 2 --data_folder './data/jmir_stethoscope/fold1/' --tag jmir_stethoscope_fold1 --device_mode mixed
 
 
 # AST - iphone
-python main.py --seed 1 --dataset icbhi --class_split lungsound --epochs 30 --batch_size 16 --optimizer adam --learning_rate 5e-5 --weight_decay 1e-6 --desired_length 4 --audioset_pretrained --pad_types repeat --resz 1 --n_mels 128 --ma_update --ma_beta 0.5 --from_sl_official --method ce --mix_beta 1.0 --n_cls 2 --data_folder './data/jmir_iphone/fold0/' --tag jmir_iphone_nors_fold0 --device_mode mixed
+python main.py --seed 1 --dataset icbhi --class_split lungsound --epochs 30 --batch_size 16 --optimizer adam --learning_rate 5e-5 --weight_decay 1e-6 --desired_length 4 --audioset_pretrained --pad_types repeat --resz 1 --n_mels 128 --ma_update --ma_beta 0.5 --from_sl_official --method ce --n_cls 2 --data_folder './data/jmir_iphone/fold0/' --tag jmir_iphone_nors_fold0 --device_mode mixed
+
+
+# AST - Seperate
+python main.py --seed 1 --dataset icbhi --class_split lungsound --epochs 30 --batch_size 16 --optimizer adam --learning_rate 5e-5 --weight_decay 1e-6 --desired_length 4 --pad_types repeat --resz 1 --n_mels 128 --ma_update --ma_beta 0.5 --method ce --n_cls 2 --data_folder './data/jmir_combine/fold0/' --tag jmir_seperate_fold0 --device_mode mixed --eval --pretrained --pretrained_ckpt './save/icbhi_ast_ce_jmir_stethoscope_fold0/best.pth'
 
 
 
 # AST - combined
-python main.py --seed 1 --dataset icbhi --class_split lungsound --epochs 30 --batch_size 16 --optimizer adam --learning_rate 5e-5 --weight_decay 1e-6 --desired_length 4 --audioset_pretrained --pad_types repeat --resz 1 --n_mels 128 --ma_update --ma_beta 0.5 --from_sl_official --method ce --mix_beta 1.0 --n_cls 2 --data_folder './data/jmir_combine/fold3/' --tag jmir_combined_fold3 --device_mode mixed
+python main.py --seed 1 --dataset icbhi --class_split lungsound --epochs 30 --batch_size 16 --optimizer adam --learning_rate 5e-5 --weight_decay 1e-6 --desired_length 4 --audioset_pretrained --pad_types repeat --resz 1 --n_mels 128 --ma_update --ma_beta 0.5 --from_sl_official --method ce --n_cls 2 --data_folder './data/jmir_combine/fold0/' --tag jmir_combined_fold0 --device_mode mixed
 
 
 # AST - Frequency time Mixstyle + balanced sampler
-python main.py --seed 1 --dataset icbhi --class_split lungsound --epochs 100 --batch_size 16 --optimizer adam --learning_rate 5e-5 --weight_decay 1e-6 --desired_length 4 --audioset_pretrained --pad_types repeat --resz 1 --n_mels 128 --ma_update --ma_beta 0.5 --from_sl_official --method ce --mix_beta 1.0 --n_cls 2 --data_folder './data/jmir_combine/fold0/' --tag jmir_cdfms_fold0 --device_mode mixed --frequency_stylemix --balance_sampler --model ast_ftms
+python main.py --seed 1 --dataset icbhi --class_split lungsound --epochs 50 --batch_size 16 --optimizer adam --learning_rate 5e-5 --weight_decay 1e-6 --desired_length 4 --audioset_pretrained --pad_types repeat --resz 1 --n_mels 128 --ma_update --ma_beta 0.5 --from_sl_official --method ce --n_cls 2 --data_folder './data/jmir_combine/fold2/' --tag jmir_cdfms_fold2 --device_mode mixed --frequency_stylemix --model ast_ftms
 
 
-# roc
-python main.py --seed 1 --dataset icbhi --class_split lungsound --n_cls 2 --batch_size 16 --optimizer adam --learning_rate 5e-5 --weight_decay 1e-6 --desired_length 4 --pretrained --pad_types repeat --resz 1 --n_mels 128 --ma_update --ma_beta 0.5 --from_sl_official --method ce --mix_beta 1.0 --eval --pretrained_ckpt './save/icbhi_ast_ce_jmir_iphone_fold0/best.pth' --tag roc --data_folder './data/jmir_iphone/fold0/' --fold_number 0 --roc
+# AST - dual
+python main.py --seed 1 --dataset icbhi --class_split lungsound --epochs 50 --batch_size 32 --optimizer adam --learning_rate 5e-5 --weight_decay 1e-6 --desired_length 4 --audioset_pretrained --pad_types repeat --resz 1 --n_mels 128 --ma_update --ma_beta 0.5 --from_sl_official --method dual --model ast_dual --mix_mode concat --mix_prob 0.5 --n_cls 2 --d_cls 2 --data_folder './data/jmir_combine/fold2/' --tag jmir_dual_fold2 --device_mode mixed
+
+
+# result
+python main_result.py --seed 1 --dataset icbhi --class_split lungsound --n_cls 2 --batch_size 16 --optimizer adam --learning_rate 5e-5 --weight_decay 1e-6 --desired_length 4 --pretrained --pad_types repeat --resz 1 --n_mels 128 --ma_update --ma_beta 0.5 --from_sl_official --method ce --eval --tag result --fold_number 0 --save_results
 
 #  eval
-python main.py --seed 1 --dataset icbhi --class_split lungsound --epochs 30 --batch_size 16 --optimizer adam --learning_rate 5e-5 --weight_decay 1e-6 --desired_length 4 --pad_types repeat --resz 1 --n_mels 128 --ma_update --ma_beta 0.5 --method ce --mix_beta 1.0 --n_cls 2 --data_folder './data/jmir_combine/fold0/' --tag test --device_mode mixed --eval --pretrained --pretrained_ckpt './save/icbhi_ast_ce_jmir_iphone_fold0/best.pth'
+python main.py --seed 1 --dataset icbhi --class_split lungsound --epochs 30 --batch_size 16 --optimizer adam --learning_rate 5e-5 --weight_decay 1e-6 --desired_length 4 --pad_types repeat --resz 1 --n_mels 128 --ma_update --ma_beta 0.5 --method ce --n_cls 2 --data_folder './data/jmir_combine/fold0/' --tag test --device_mode mixed --eval --pretrained --pretrained_ckpt './save/icbhi_ast_ce_jmir_cdfms_fold0/best.pth' --model ast_ftms --frequency_stylemix
 
 # tsne
-python main.py --seed 1 --dataset icbhi --class_split lungsound --epochs 30 --batch_size 16 --optimizer adam --learning_rate 5e-5 --weight_decay 1e-6 --desired_length 4 --audioset_pretrained --pad_types repeat --resz 1 --n_mels 128 --ma_update --ma_beta 0.5 --from_sl_official --method ce --mix_beta 1.0 --n_cls 2 --data_folder './data/jmir_generated/fold0/' --tag jmir_tsne --device_mode mixed --visualize_initial_embeddings
+python main.py --seed 1 --dataset icbhi --class_split lungsound --epochs 30 --batch_size 16 --optimizer adam --learning_rate 5e-5 --weight_decay 1e-6 --desired_length 4 --audioset_pretrained --pad_types repeat --resz 1 --n_mels 128 --ma_update --ma_beta 0.5 --from_sl_official --method ce --n_cls 2 --data_folder './data/jmir_generated/fold0/' --tag jmir_tsne --device_mode mixed --visualize_initial_embeddings
 
 
 # tsne + eval
-python main.py --seed 1 --dataset icbhi --class_split lungsound --epochs 30 --batch_size 16 --optimizer adam --learning_rate 5e-5 --weight_decay 1e-6 --desired_length 4 --pad_types repeat --resz 1 --n_mels 128 --ma_update --ma_beta 0.5 --method ce --mix_beta 1.0 --n_cls 2 --data_folder './data/jmir_generated/fold0/' --tag test --device_mode mixed --visualize_embeddings --eval --pretrained --pretrained_ckpt './save/icbhi_ast_ce_jmir_ast_generate_fold0/best.pth'
+python main.py --seed 1 --dataset icbhi --class_split lungsound --epochs 30 --batch_size 16 --optimizer adam --learning_rate 5e-5 --weight_decay 1e-6 --desired_length 4 --pad_types repeat --resz 1 --n_mels 128 --ma_update --ma_beta 0.5 --method ce --n_cls 2 --data_folder './data/jmir_generated/fold0/' --tag test --device_mode mixed --visualize_embeddings --eval --pretrained --pretrained_ckpt './save/icbhi_ast_ce_jmir_ast_generate_fold0/best.pth'
 
 
 
 
 
 
+python main.py --seed 1 --dataset icbhi --class_split lungsound --epochs 30 --batch_size 16 --optimizer adam --learning_rate 5e-5 --weight_decay 1e-6 --desired_length 4 --pad_types repeat --resz 1 --n_mels 128 --ma_update --ma_beta 0.5 --method ce --n_cls 2 --data_folder './data/jmir_combine/fold0/' --tag test --device_mode mixed --eval --pretrained --pretrained_ckpt './save/icbhi_ast_ce_jmir_cdfms_fold0/best.pth' --model ast_ftms --frequency_stylemix
 

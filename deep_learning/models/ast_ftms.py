@@ -8,78 +8,8 @@ import timm
 from copy import deepcopy
 from timm.models.layers import to_2tuple,trunc_normal_
 from timm.models.vision_transformer import Block
-from .functions import ReverseLayerF
 
 
-
-# 옵션 1 : cross 도메인할건지 random 할건지 in 도메인 할건지
-# 옵션 2 : 주파수에 대해서만 할건지 시간에 대해서만 할건지 둘 다 할건지
-# 옵션 3 : 배치 샘플러 클래스 비율
-# 옵션 4 : p, alpha
-# 옵션 5 : mix 위치
-# 옵션 6 : 비정상을 세부클래스로 믹싱
-class CrossDomainClassSpecificFrequencyMixStyle(nn.Module):
-    def __init__(self, f_dim, num_domains, num_classes, p=0.3, alpha=0.5, eps=1e-6, mix='crossdomain', class_mix=True):
-        super().__init__()
-        self.f_dim = f_dim
-        self.p = p
-        self.alpha = alpha
-        self.eps = eps
-        self.num_domains = num_domains
-        self.num_classes = num_classes
-        self.mix = mix
-        self.class_mix = class_mix
-    def forward(self, x, domain_labels, class_labels):
-        if not self.training or torch.rand(1) > self.p:
-            return x
-        
-        B, N, C = x.shape
-        t_dim = N // self.f_dim
-        x = x.view(B, self.f_dim, t_dim, C)
-        
-        mu = x.mean(dim=[1, 2], keepdim=True)
-        var = x.var(dim=[1, 2], keepdim=True)
-        sig = (var + self.eps).sqrt()
-        mu, sig = mu.detach(), sig.detach()
-        x_normed = (x-mu) / sig
-        
-        # print("class_labels : ", class_labels)
-        # print("domain_labels : ", domain_labels)
-        
-        # 클래스 및 도메인 마스크 생성
-        class_masks = (class_labels.unsqueeze(1) == class_labels.unsqueeze(0))
-        domain_masks = (domain_labels.unsqueeze(1) != domain_labels.unsqueeze(0))
-        valid_indices = class_masks & domain_masks
-        
-        # 각 샘플에 대한 유효한 믹싱 대상 수 계산
-        num_valid_per_sample = valid_indices.sum(dim=1)
-        
-        # 믹싱 인덱스 초기화
-        mixing_indices = torch.arange(B, device=x.device)
-        
-        # 유효한 믹싱 대상이 있는 샘플에 대해서만 믹싱 수행
-        for i in range(B):
-            if num_valid_per_sample[i] > 0:
-                valid_targets = torch.where(valid_indices[i])[0]
-                mixing_indices[i] = valid_targets[torch.randint(0, len(valid_targets), (1,))]
-        
-        # 알파 값 생성
-        alpha = torch.rand(B, 1, 1, 1, device=x.device) * self.alpha
-        
-        # 믹싱 수행
-        mu2, sig2 = mu[mixing_indices], sig[mixing_indices]
-        
-        mu_mix = mu*alpha + mu2 * (1-alpha)
-        sig_mix = sig*alpha + sig2 * (1-alpha)
-        
-        x_mixed = x_normed*sig_mix + mu_mix
-        
-        return x_mixed.view(B, N, C)
-    
-
-    
-    
-    
     
         
 # override the timm package to relax the input shape constraint.
@@ -102,6 +32,236 @@ class PatchEmbed(nn.Module):
         x = self.proj(x).flatten(2).transpose(1, 2)
         return x
 
+class SourceToTargetFrequencyMixStyle(nn.Module):
+    def __init__(self, f_dim, num_domains, p=1.0, alpha=1.0, eps=1e-6):
+        super().__init__()
+        self.f_dim = f_dim
+        self.p = p
+        self.alpha = alpha  # 혼합 강도 조절 파라미터
+        self.eps = eps
+        self.num_domains = num_domains
+        self._beta = torch.distributions.Beta(self.alpha, self.alpha)
+        
+    def forward(self, x, domain_labels, block=0):
+        # 학습 중이 아니거나 확률 p보다 큰 랜덤 값이 나오면 원본 반환
+        if not self.training or torch.rand(1) > self.p:
+            return x
+    
+        
+        # 소스 도메인과 타겟 도메인 마스크 생성
+        source_mask = (domain_labels == 1)  
+        target_mask = (domain_labels == 0)   
+        
+        # 소스나 타겟 샘플이 없으면 원본 반환
+        if source_mask.sum() == 0 and target_mask.sum() == 0:
+            return x
+        
+        # 블록에 따라 텐서 형태 조정
+        if block == 0:  # 입력 이미지 형태 (B, C, T, F)(B , 1, 398, 128)
+            B, C, t_dim, f_dim = x.shape
+            # x = x.view(B, f_dim, t_dim, C)
+            
+            # 소스 샘플 변환
+            x_transformed = x.clone()
+            for i in range(B):
+                if source_mask[i]:
+                    # 타겟 도메인 샘플 중 하나를 랜덤하게 선택
+                    target_indices = torch.where(target_mask)[0]
+                    if len(target_indices) > 0:
+                        j = target_indices[torch.randint(0, len(target_indices), (1,))]
+                                                
+                        # 선택된 타겟 샘플의 통계 계산
+                        target_mu = x[j:j+1].mean(dim=[2], keepdim=True)
+                        target_sig = (x[j:j+1].var(dim=[2], keepdim=True) + self.eps).sqrt()
+                        
+                        source_mu = x[i:i+1].mean(dim=[2], keepdim=True)
+                        source_sig = (x[i:i+1].var(dim=[2], keepdim=True) + self.eps).sqrt()
+                        
+                        # 알파 값으로 혼합 강도 조절
+                        lam = self._beta.sample().to(x.device)
+                        lam = lam.view(1, 1, 1, 1)
+                        
+                        mu_mix = (1 - lam) * source_mu + lam * target_mu
+                        sig_mix = (1 - lam) * source_sig + lam * target_sig
+                        
+                        # 정규화 후 새 통계로 변환
+                        x_norm = (x[i:i+1] - source_mu) / source_sig
+                        x_transformed[i] = x_norm * sig_mix + mu_mix
+                
+                # elif target_mask[i]:
+                #     # 타겟 샘플은 다른 타겟 샘플과만 믹스
+                #     other_target_indices = torch.where(target_mask)[0]
+                #     # 자기 자신 제외
+                #     other_target_indices = other_target_indices[other_target_indices != i]
+                    
+                #     if len(other_target_indices) > 0:
+                #         j = other_target_indices[torch.randint(0, len(other_target_indices), (1,))]
+                        
+                #         # 선택된 타겟 샘플의 통계 계산
+                #         other_mu = x[j:j+1].mean(dim=[2], keepdim=True)
+                #         other_sig = (x[j:j+1].var(dim=[2], keepdim=True) + self.eps).sqrt()
+                        
+                #         target_mu = x[i:i+1].mean(dim=[2], keepdim=True)
+                #         target_sig = (x[i:i+1].var(dim=[2], keepdim=True) + self.eps).sqrt()
+                        
+                #         # 알파 값으로 혼합 강도 조절
+                #         lam = self._beta.sample().to(x.device)
+                #         lam = lam.view(1, 1, 1, 1)
+                        
+                #         mu_mix = (1 - lam) * target_mu + lam * other_mu
+                #         sig_mix = (1 - lam) * target_sig + lam * other_sig
+                        
+                #         # 정규화 후 새 통계로 변환
+                #         x_norm = (x[i:i+1] - target_mu) / target_sig
+                #         x_transformed[i] = x_norm * sig_mix + mu_mix
+            
+            return x_transformed
+                
+        else:  # 트랜스포머 블록 내부 형태 (B, N, C)
+            B, N, C = x.shape
+            t_dim = N // self.f_dim
+            x = x.reshape(B, self.f_dim, t_dim, C)
+            
+            # print('f_dim', self.f_dim) # 39
+            # print('t_dim', t_dim) # 12
+            # 소스 샘플 변환
+            x_transformed = x.clone()
+            for i in range(B):
+                # 타겟 샘플은 타겟끼리만 믹스, 소스 샘플은 소스와 타겟 모두와 믹스 가능
+                if source_mask[i]:
+                    # 타겟 도메인 샘플 중 하나를 랜덤하게 선택
+                    target_indices = torch.where(target_mask)[0]
+                    if len(target_indices) > 0:
+                        j = target_indices[torch.randint(0, len(target_indices), (1,))]
+                        
+                        target_mu = x[j:j+1].mean(dim=[1], keepdim=True)
+                        target_sig = (x[j:j+1].var(dim=[1], keepdim=True) + self.eps).sqrt()
+                        
+                        source_mu = x[i:i+1].mean(dim=[1], keepdim=True)
+                        source_sig = (x[i:i+1].var(dim=[1], keepdim=True) + self.eps).sqrt()
+                        
+                        # 알파 값으로 혼합 강도 조절
+                        lam = self._beta.sample().to(x.device)
+                        lam = lam.view(1, 1, 1, 1)
+                        
+                        mu_mix = (1 - lam) * source_mu + lam * target_mu
+                        sig_mix = (1 - lam) * source_sig + lam * target_sig
+                        
+                        # 정규화 후 새 통계로 변환
+                        x_norm = (x[i:i+1] - source_mu) / source_sig
+                        x_transformed[i] = x_norm * sig_mix + mu_mix
+                
+                elif target_mask[i]:
+                    # 타겟 샘플은 다른 타겟 샘플과만 믹스
+                    other_target_indices = torch.where(target_mask)[0]
+                    # 자기 자신 제외
+                    other_target_indices = other_target_indices[other_target_indices != i]
+                    
+                    if len(other_target_indices) > 0:
+                        j = other_target_indices[torch.randint(0, len(other_target_indices), (1,))]
+                        
+                        # 선택된 타겟 샘플의 통계 계산
+                        other_mu = x[j:j+1].mean(dim=[1], keepdim=True)
+                        other_sig = (x[j:j+1].var(dim=[1], keepdim=True) + self.eps).sqrt()
+                        
+                        target_mu = x[i:i+1].mean(dim=[1], keepdim=True)
+                        target_sig = (x[i:i+1].var(dim=[1], keepdim=True) + self.eps).sqrt()
+                        
+                        # 알파 값으로 혼합 강도 조절
+                        lam = self._beta.sample().to(x.device)
+                        lam = lam.view(1, 1, 1, 1)
+                        
+                        mu_mix = (1 - lam) * target_mu + lam * other_mu
+                        sig_mix = (1 - lam) * target_sig + lam * other_sig
+                        
+                        # 정규화 후 새 통계로 변환
+                        x_norm = (x[i:i+1] - target_mu) / target_sig
+                        x_transformed[i] = x_norm * sig_mix + mu_mix
+            
+            return x_transformed.reshape(B, N, C)
+        
+        
+
+class RandomFrequencyMixStyle(nn.Module):
+    def __init__(self, f_dim, num_domains, p=0.3, alpha=1.0, eps=1e-6):
+        super().__init__()
+        self.f_dim = f_dim
+        self.p = p
+        self.alpha = alpha  # 혼합 강도 조절 파라미터
+        self.eps = eps
+        self.num_domains = num_domains
+        self._beta = torch.distributions.Beta(self.alpha, self.alpha)
+        
+    def forward(self, x, domain_labels, block=0):
+        # 학습 중이 아니거나 확률 p보다 큰 랜덤 값이 나오면 원본 반환
+        if not self.training or torch.rand(1) > self.p:
+            return x
+        
+        # 블록에 따라 텐서 형태 조정
+        if block == 0:  # 입력 이미지 형태 (B, C, F, T)
+            B, C, f_dim, t_dim = x.shape
+            
+            # 각 샘플에 대해 무작위로 다른 샘플 선택하여 믹스
+            x_transformed = x.clone()
+            for i in range(B):
+                # 현재 샘플과 다른 무작위 샘플 선택
+                j = torch.randint(0, B, (1,))
+                while j == i:  # 자기 자신이 아닌 다른 샘플 선택
+                    j = torch.randint(0, B, (1,))
+                
+                # 선택된 샘플의 통계 계산
+                target_mu = x[j:j+1].mean(dim=[2], keepdim=True)
+                target_sig = (x[j:j+1].var(dim=[2], keepdim=True) + self.eps).sqrt()
+                
+                source_mu = x[i:i+1].mean(dim=[2], keepdim=True)
+                source_sig = (x[i:i+1].var(dim=[2], keepdim=True) + self.eps).sqrt()
+                
+                # 알파 값으로 혼합 강도 조절
+                lam = self._beta.sample().to(x.device)
+                lam = lam.view(1, 1, 1, 1)
+                
+                mu_mix = (1 - lam) * source_mu + lam * target_mu
+                sig_mix = (1 - lam) * source_sig + lam * target_sig
+                
+                # 정규화 후 새 통계로 변환
+                x_norm = (x[i:i+1] - source_mu) / source_sig
+                x_transformed[i] = x_norm * sig_mix + mu_mix
+            
+            return x_transformed
+                
+        else:  # 트랜스포머 블록 내부 형태 (B, N, C)
+            B, N, C = x.shape
+            t_dim = N // self.f_dim
+            x = x.reshape(B, self.f_dim, t_dim, C)
+            
+            # 각 샘플에 대해 무작위로 다른 샘플 선택하여 믹스
+            x_transformed = x.clone()
+            for i in range(B):
+                # 현재 샘플과 다른 무작위 샘플 선택
+                j = torch.randint(0, B, (1,))
+                while j == i:  # 자기 자신이 아닌 다른 샘플 선택
+                    j = torch.randint(0, B, (1,))
+                
+                # 선택된 샘플의 통계 계산
+                target_mu = x[j:j+1].mean(dim=[1,2], keepdim=True)
+                target_sig = (x[j:j+1].var(dim=[1,2], keepdim=True) + self.eps).sqrt()
+                
+                source_mu = x[i:i+1].mean(dim=[1,2], keepdim=True)
+                source_sig = (x[i:i+1].var(dim=[1,2], keepdim=True) + self.eps).sqrt()
+                
+                # 알파 값으로 혼합 강도 조절
+                lam = self._beta.sample().to(x.device)
+                lam = lam.view(1, 1, 1, 1)
+                
+                mu_mix = (1 - lam) * source_mu + lam * target_mu
+                sig_mix = (1 - lam) * source_sig + lam * target_sig
+                
+                # 정규화 후 새 통계로 변환
+                x_norm = (x[i:i+1] - source_mu) / source_sig
+                x_transformed[i] = x_norm * sig_mix + mu_mix
+            
+            return x_transformed.reshape(B, N, C)
+
 class ASTFTMSModel(nn.Module):
     """
     The AST model.
@@ -114,7 +274,7 @@ class ASTFTMSModel(nn.Module):
     :param audioset_pretrain: if use full AudioSet and ImageNet pretrained model
     :param model_size: the model size of AST, should be in [tiny224, small224, base224, base384], base224 and base 384 are same model, but are trained differently during ImageNet pretraining.
     """
-    def __init__(self, label_dim=527, fstride=10, tstride=10, input_fdim=128, input_tdim=1024, imagenet_pretrain=True, audioset_pretrain=False, model_size='base384', verbose=True, mix_beta=None, domain_label_dim=527,device_label_dim=527):
+    def __init__(self, label_dim=527, fstride=10, tstride=10, input_fdim=128, input_tdim=1024, imagenet_pretrain=True, audioset_pretrain=False, model_size='base384', verbose=True, mix_beta=None, domain_label_dim=527,device_label_dim=527, random_mix=False):
         super(ASTFTMSModel, self).__init__()
         assert timm.__version__ == '0.4.5', 'Please use timm == 0.4.5, the code might not be compatible with newer versions.'
 
@@ -127,7 +287,7 @@ class ASTFTMSModel(nn.Module):
 
         self.final_feat_dim = 768
         self.mix_beta = mix_beta
-
+        self.random_mix = random_mix
         
         # original_embedding_dim 설정
         if audioset_pretrain == False:
@@ -144,9 +304,10 @@ class ASTFTMSModel(nn.Module):
         self.f_dim, _ = self.get_shape(fstride, tstride, input_fdim, input_tdim)
         
 
-        
-        self.fmix1 = CrossDomainClassSpecificFrequencyMixStyle(self.f_dim, 2,2)
-        self.fmix2 = CrossDomainClassSpecificFrequencyMixStyle(self.f_dim, 2,2)
+        if self.random_mix:
+            self.fmix1 = RandomFrequencyMixStyle(self.f_dim, 2, p=1.0, alpha=0.5)
+        else:
+            self.fmix1 = SourceToTargetFrequencyMixStyle(self.f_dim, 2, p=0.5, alpha=0.5)
     
 
 
@@ -279,117 +440,64 @@ class ASTFTMSModel(nn.Module):
         patch = square.reshape(B, h * w, dim)
         return patch
 
-    def patch_mix(self, image, target, target2, da_index, args, time_domain=False, hw_num_patch=None):
-        
-        if da_index:
-            lam = da_index[0]
-            index = da_index[1]
-        else:
-            
-            if self.mix_beta > 0:
-                lam = np.random.beta(self.mix_beta, self.mix_beta)
-            else:
-                lam = 1
-        
-        batch_size, num_patch, dim = image.size()
-        device = image.device
-
-        if not da_index:
-            index = torch.randperm(batch_size).to(device)
-        
-
-        if not time_domain:
-            num_mask = int(num_patch * (1. - lam))
-            mask = torch.randperm(num_patch)[:num_mask].to(device)
-
-            image[:, mask, :] = image[index][:, mask, :]
-            lam = 1 - (num_mask / num_patch)
-        else:
-            squared_1 = self.square_patch(image, hw_num_patch)
-            squared_2 = self.square_patch(image[index], hw_num_patch)
-
-            w_size = squared_1.size()[2]
-            num_mask = int(w_size * (1. - lam))
-            mask = torch.randperm(w_size)[:num_mask].to(device)
-
-            squared_1[:, :, mask, :] = squared_2[:, :, mask, :]
-            image = self.flatten_patch(squared_1)
-            lam = 1 - (num_mask / w_size)
-        
-        
-        
-        if args.adversarial_ft:
-            y_a, y_b = target, target[index]
-            y2_a, y2_b = target2, target2[index]
-            return image, (y_a, y2_a), (y_b, y2_b), lam, index
-        else:
-            y_a, y_b = target, target[index]
-            return image, y_a, y_b, lam, index
+  
         
         
 
 
     @autocast()
-    def forward(self, x, y=None, y2=None, da_index=None, patch_mix=False, time_domain=False, args=None, alpha=None,training=False,frequency_stylemix=False, domain_labels=None,class_labels=None):
+    def forward(self, x, args=None, training=False, frequency_stylemix=False, domain_labels=None, class_labels=None):
         """
         :param x: the input spectrogram, expected shape: (batch_size, 1, time_frame_num, frequency_bins), e.g., (12, 1, 1024, 128)
         :return: prediction
         """
         
+        if training:
+            # 1. MixStyle 먼저 적용 (왜곡되지 않은 원본 데이터에 대해)
+            if frequency_stylemix:
 
-        x = x.transpose(2, 3) # B, 1, F, T
-
-        h_patch, w_patch = int((x.size()[2] - 16) / 10) + 1, int((x.size()[3] - 16) / 10) + 1
+                x = self.fmix1(x, domain_labels, 0)
+                
+                x = args.transforms(x)
         
+       
+        # 입력 변환
+        x = x.transpose(2, 3)  # [B, 1, F, T]
+                
         B = x.shape[0]
         x = self.v.patch_embed(x)
+                
+                
         
+            
         
-        # print("domain_labels : ", domain_labels)
-        
-        # print("class_labels : ", class_labels)
-        
-        # print("after patch_embed : ", x)
-        
-        if frequency_stylemix:
-            if domain_labels is not None and class_labels is not None:
-                 x = self.fmix1(x, domain_labels, class_labels)
-        
-        # print("after first fsm : ", x)
-
-        if patch_mix:
-            x, y_a, y_b, lam, index = self.patch_mix(x, y, y2, da_index, args, time_domain=time_domain, hw_num_patch=[h_patch, w_patch])
+        # if training and frequency_stylemix:
+        #     if domain_labels is not None and class_labels is not None:
+        #         x = self.fmix1(x,domain_labels,1)
+                
         
         cls_tokens = self.v.cls_token.expand(B, -1, -1)
         dist_token = self.v.dist_token.expand(B, -1, -1)
         x = torch.cat((cls_tokens, dist_token, x), dim=1)
         x = x + self.v.pos_embed
+        
  
         x = self.v.pos_drop(x)
         
-        # print("after pos drop : ", x)
  
         
         for i, blk in enumerate(self.v.blocks):
             x = blk(x)
-            if frequency_stylemix:
-                if i == len(self.v.blocks) // 2 and domain_labels is not None and class_labels is not None:
-                    x_new = self.fmix2(x[:, 2:, :], domain_labels, class_labels)
-                    x = torch.cat((x[:, :2, :], x_new), dim=1)
-                    # print("after second fsm : ", x)
-                        
-    
-                
+            # if training and frequency_stylemix and domain_labels is not None and class_labels is not None:
+            #     if i in [5]:  # Apply at 1/4, 1/2, and 3/4 points
+            #             x_new = self.fmix1(x[:, 2:, :], domain_labels,1)
+            #             x = torch.cat((x[:, :2, :], x_new), dim=1)
+
         x = self.v.norm(x)
         
-        # print("after norm :", x)
-        
+
         x = (x[:, 0] + x[:, 1]) / 2
         
-        # print("final :", x)
         
-        
-        if not patch_mix:
-            return x
-        else:
-            return x, y_a, y_b, lam, index
+
+        return x
